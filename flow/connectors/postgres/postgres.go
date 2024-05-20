@@ -721,7 +721,7 @@ func (c *PostgresConnector) GetTableSchema(
 ) (*protos.GetTableSchemaBatchOutput, error) {
 	res := make(map[string]*protos.TableSchema)
 	for _, tableName := range req.TableIdentifiers {
-		tableSchema, err := c.getTableSchemaForTable(ctx, tableName, req.System)
+		tableSchema, err := c.getTableSchemaForTable(ctx, tableName, req.System, req.SkipChecksForQRep)
 		if err != nil {
 			c.logger.Info("error fetching schema for table "+tableName, slog.Any("error", err))
 			return nil, err
@@ -739,19 +739,24 @@ func (c *PostgresConnector) getTableSchemaForTable(
 	ctx context.Context,
 	tableName string,
 	system protos.TypeSystem,
+	skipTableAndReplIdentityChecks bool,
 ) (*protos.TableSchema, error) {
 	schemaTable, err := utils.ParseSchemaTable(tableName)
 	if err != nil {
 		return nil, err
 	}
 
-	replicaIdentityType, err := c.getReplicaIdentityType(ctx, schemaTable)
-	if err != nil {
-		return nil, fmt.Errorf("[getTableSchema] error getting replica identity for table %s: %w", schemaTable, err)
-	}
-	pKeyCols, err := c.getUniqueColumns(ctx, replicaIdentityType, schemaTable)
-	if err != nil {
-		return nil, fmt.Errorf("[getTableSchema] error getting primary key column for table %s: %w", schemaTable, err)
+	var pKeyCols []string
+	var replicaIdentityType ReplicaIdentityType
+	if !skipTableAndReplIdentityChecks {
+		replicaIdentityType, err := c.getReplicaIdentityType(ctx, schemaTable)
+		if err != nil {
+			return nil, fmt.Errorf("[getTableSchema] error getting replica identity for table %s: %w", schemaTable, err)
+		}
+		pKeyCols, err = c.getUniqueColumns(ctx, replicaIdentityType, schemaTable)
+		if err != nil {
+			return nil, fmt.Errorf("[getTableSchema] error getting primary key column for table %s: %w", schemaTable, err)
+		}
 	}
 
 	// Get the column names and types
@@ -1104,10 +1109,15 @@ func (c *PostgresConnector) SyncFlowCleanup(ctx context.Context, jobName string)
 		return fmt.Errorf("unable to drop raw table: %w", err)
 	}
 
+	// check if mirrorJobsTableIdentifier exists
+	var mirrorJobsTableExists bool
+	err = syncFlowCleanupTx.QueryRow(ctx, checkIfTableExistsSQL, c.metadataSchema,
+		mirrorJobsTableIdentifier).Scan(&mirrorJobsTableExists)
 	mirrorJobsTableExists, err := c.jobMetadataExists(ctx, jobName)
 	if err != nil {
 		return fmt.Errorf("unable to check if job metadata exists: %w", err)
 	}
+
 	if mirrorJobsTableExists {
 		_, err = syncFlowCleanupTx.Exec(ctx,
 			fmt.Sprintf(deleteJobMetadataSQL, c.metadataSchema, mirrorJobsTableIdentifier), jobName)
@@ -1120,6 +1130,7 @@ func (c *PostgresConnector) SyncFlowCleanup(ctx context.Context, jobName string)
 	if err != nil {
 		return fmt.Errorf("unable to commit transaction for sync flow cleanup: %w", err)
 	}
+
 	return nil
 }
 
