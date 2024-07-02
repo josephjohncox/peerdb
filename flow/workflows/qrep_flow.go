@@ -544,8 +544,14 @@ func QRepFlowWorkflow(
 		return state, err
 	}
 
-	if !config.InitialCopyOnly && state.LastPartition != nil {
-		if err := q.waitForNewRows(ctx, signalChan, state.LastPartition); err != nil {
+	optedForOverwrite := config.WriteMode.WriteType == protos.QRepWriteType_QREP_WRITE_MODE_OVERWRITE
+	lastPartition := state.LastPartition
+	if optedForOverwrite {
+		lastPartition = InitialLastPartition
+	}
+
+	if !config.InitialCopyOnly && lastPartition != nil {
+		if err := q.waitForNewRows(ctx, signalChan, lastPartition); err != nil {
 			return state, err
 		}
 	}
@@ -579,7 +585,7 @@ func QRepFlowWorkflow(
 		q.logger.Info(fmt.Sprintf("%d partitions processed", len(partitions.Partitions)))
 		state.NumPartitionsProcessed += uint64(len(partitions.Partitions))
 
-		if len(partitions.Partitions) > 0 {
+		if len(partitions.Partitions) > 0 && !optedForOverwrite {
 			state.LastPartition = partitions.Partitions[len(partitions.Partitions)-1]
 		}
 	}
