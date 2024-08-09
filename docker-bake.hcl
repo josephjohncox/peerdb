@@ -7,7 +7,7 @@ variable TAG {
 }
 
 variable REGISTRY {
-  default = "ghcr.io/peerdb-io"
+  default = "ghcr.io/josephjohncox"
 }
 
 group "default" {
