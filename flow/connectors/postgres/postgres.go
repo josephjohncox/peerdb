@@ -630,7 +630,6 @@ func (c *PostgresConnector) NormalizeRecords(
 		peerdbCols: &protos.PeerDBColumns{
 			SoftDeleteColName: req.SoftDeleteColName,
 			SyncedAtColName:   req.SyncedAtColName,
-			SoftDelete:        req.SoftDelete,
 		},
 		supportsMerge:  pgversion >= shared.POSTGRES_15,
 		metadataSchema: c.metadataSchema,
@@ -722,7 +721,7 @@ func (c *PostgresConnector) GetTableSchema(
 ) (*protos.GetTableSchemaBatchOutput, error) {
 	res := make(map[string]*protos.TableSchema)
 	for _, tableName := range req.TableIdentifiers {
-		tableSchema, err := c.getTableSchemaForTable(ctx, tableName, req.System, req.SkipChecksForQRep)
+		tableSchema, err := c.getTableSchemaForTable(ctx, tableName, req.System)
 		if err != nil {
 			c.logger.Info("error fetching schema for table "+tableName, slog.Any("error", err))
 			return nil, err
@@ -740,24 +739,19 @@ func (c *PostgresConnector) getTableSchemaForTable(
 	ctx context.Context,
 	tableName string,
 	system protos.TypeSystem,
-	skipTableAndReplIdentityChecks bool,
 ) (*protos.TableSchema, error) {
 	schemaTable, err := utils.ParseSchemaTable(tableName)
 	if err != nil {
 		return nil, err
 	}
 
-	var pKeyCols []string
-	var replicaIdentityType ReplicaIdentityType
-	if !skipTableAndReplIdentityChecks {
-		replicaIdentityType, err := c.getReplicaIdentityType(ctx, schemaTable)
-		if err != nil {
-			return nil, fmt.Errorf("[getTableSchema] error getting replica identity for table %s: %w", schemaTable, err)
-		}
-		pKeyCols, err = c.getUniqueColumns(ctx, replicaIdentityType, schemaTable)
-		if err != nil {
-			return nil, fmt.Errorf("[getTableSchema] error getting primary key column for table %s: %w", schemaTable, err)
-		}
+	replicaIdentityType, err := c.getReplicaIdentityType(ctx, schemaTable)
+	if err != nil {
+		return nil, fmt.Errorf("[getTableSchema] error getting replica identity for table %s: %w", schemaTable, err)
+	}
+	pKeyCols, err := c.getUniqueColumns(ctx, replicaIdentityType, schemaTable)
+	if err != nil {
+		return nil, fmt.Errorf("[getTableSchema] error getting primary key column for table %s: %w", schemaTable, err)
 	}
 
 	// Get the column names and types
@@ -1114,7 +1108,6 @@ func (c *PostgresConnector) SyncFlowCleanup(ctx context.Context, jobName string)
 	if err != nil {
 		return fmt.Errorf("unable to check if job metadata exists: %w", err)
 	}
-
 	if mirrorJobsTableExists {
 		_, err = syncFlowCleanupTx.Exec(ctx,
 			fmt.Sprintf(deleteJobMetadataSQL, c.metadataSchema, mirrorJobsTableIdentifier), jobName)
@@ -1127,7 +1120,6 @@ func (c *PostgresConnector) SyncFlowCleanup(ctx context.Context, jobName string)
 	if err != nil {
 		return fmt.Errorf("unable to commit transaction for sync flow cleanup: %w", err)
 	}
-
 	return nil
 }
 
@@ -1286,17 +1278,7 @@ func (c *PostgresConnector) RenameTables(ctx context.Context, req *protos.Rename
 		}
 		dst := dstTable.String()
 
-		c.logger.Info(fmt.Sprintf("setting synced at column for table '%s'...", src))
-
-		if req.SyncedAtColName != nil && *req.SyncedAtColName != "" {
-			_, err = renameTablesTx.Exec(ctx,
-				fmt.Sprintf("UPDATE %s SET %s=now()", src, QuoteIdentifier(*req.SyncedAtColName)))
-			if err != nil {
-				return nil, fmt.Errorf("unable to set synced at column for table %s: %w", src, err)
-			}
-		}
-
-		if req.SoftDeleteColName != nil && *req.SoftDeleteColName != "" {
+		if req.SoftDeleteColName != "" {
 			columnNames := make([]string, 0, len(renameRequest.TableSchema.Columns))
 			for _, col := range renameRequest.TableSchema.Columns {
 				columnNames = append(columnNames, QuoteIdentifier(col.Name))
