@@ -1138,9 +1138,6 @@ func (c *PostgresConnector) SyncFlowCleanup(ctx context.Context, jobName string)
 	}
 
 	// check if mirrorJobsTableIdentifier exists
-	var mirrorJobsTableExists bool
-	err = syncFlowCleanupTx.QueryRow(ctx, checkIfTableExistsSQL, c.metadataSchema,
-		mirrorJobsTableIdentifier).Scan(&mirrorJobsTableExists)
 	mirrorJobsTableExists, err := c.jobMetadataExists(ctx, jobName)
 	if err != nil {
 		return fmt.Errorf("unable to check if job metadata exists: %w", err)
