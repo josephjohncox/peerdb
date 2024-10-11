@@ -724,11 +724,14 @@ func (c *PostgresConnector) CreateRawTable(ctx context.Context, req *protos.Crea
 
 func (c *PostgresConnector) GetTableSchema(
 	ctx context.Context,
-	req *protos.GetTableSchemaBatchInput,
-) (*protos.GetTableSchemaBatchOutput, error) {
-	res := make(map[string]*protos.TableSchema)
-	for _, tableName := range req.TableIdentifiers {
-		tableSchema, err := c.getTableSchemaForTable(ctx, tableName, req.System, req.SkipChecksForQRep)
+	env map[string]string,
+	system protos.TypeSystem,
+	tableIdentifiers []string,
+	skipChecksForQRep bool,
+) (map[string]*protos.TableSchema, error) {
+	res := make(map[string]*protos.TableSchema, len(tableIdentifiers))
+	for _, tableName := range tableIdentifiers {
+		tableSchema, err := c.getTableSchemaForTable(ctx, env, tableName, system, skipChecksForQRep)
 		if err != nil {
 			c.logger.Info("error fetching schema for table "+tableName, slog.Any("error", err))
 			return nil, err
@@ -752,25 +755,33 @@ func (c *PostgresConnector) getTableSchemaForTable(
 		return nil, err
 	}
 
+	relID, err := c.getRelIDForTable(ctx, schemaTable)
+	if err != nil {
+		return nil, fmt.Errorf("[getTableSchema] failed to get relation id for table %s: %w", schemaTable, err)
+	}
+
 	var pKeyCols []string
 	var replicaIdentityType ReplicaIdentityType
 	if !skipTableAndReplIdentityChecks {
-		replicaIdentityType, err := c.getReplicaIdentityType(ctx, schemaTable)
+
+		replicaIdentityType, err = c.getReplicaIdentityType(ctx, relID, schemaTable)
 		if err != nil {
 			return nil, fmt.Errorf("[getTableSchema] error getting replica identity for table %s: %w", schemaTable, err)
 		}
-		pKeyCols, err = c.getUniqueColumns(ctx, replicaIdentityType, schemaTable)
+
+		pKeyCols, err = c.getUniqueColumns(ctx, relID, replicaIdentityType, schemaTable)
 		if err != nil {
 			return nil, fmt.Errorf("[getTableSchema] error getting primary key column for table %s: %w", schemaTable, err)
 		}
+
 	}
 
+	var nullableCols map[string]struct{}
 	nullableEnabled, err := peerdbenv.PeerDBNullable(ctx, env)
 	if err != nil {
 		return nil, err
 	}
 
-	var nullableCols map[string]struct{}
 	if nullableEnabled {
 		nullableCols, err = c.getNullableColumns(ctx, relID)
 		if err != nil {
@@ -1137,12 +1148,10 @@ func (c *PostgresConnector) SyncFlowCleanup(ctx context.Context, jobName string)
 		return fmt.Errorf("unable to drop raw table: %w", err)
 	}
 
-	// check if mirrorJobsTableIdentifier exists
 	mirrorJobsTableExists, err := c.jobMetadataExists(ctx, jobName)
 	if err != nil {
 		return fmt.Errorf("unable to check if job metadata exists: %w", err)
 	}
-
 	if mirrorJobsTableExists {
 		_, err = syncFlowCleanupTx.Exec(ctx,
 			fmt.Sprintf(deleteJobMetadataSQL, c.metadataSchema, mirrorJobsTableIdentifier), jobName)
@@ -1155,7 +1164,6 @@ func (c *PostgresConnector) SyncFlowCleanup(ctx context.Context, jobName string)
 	if err != nil {
 		return fmt.Errorf("unable to commit transaction for sync flow cleanup: %w", err)
 	}
-
 	return nil
 }
 

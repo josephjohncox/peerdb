@@ -105,11 +105,18 @@ func (q *QRepFlowExecution) setupTableSchema(ctx workflow.Context, tableName str
 		},
 	})
 
-	tableSchemaInput := &protos.GetTableSchemaBatchInput{
-		PeerName:          q.config.SourceName,
-		TableIdentifiers:  []string{tableName},
-		FlowName:          q.config.FlowJobName,
-		System:            q.config.System,
+	tableSchemaInput := &protos.SetupTableSchemaBatchInput{
+		PeerName:         q.config.SourceName,
+		TableIdentifiers: []string{tableName},
+		TableMappings: []*protos.TableMapping{
+			{
+				SourceTableIdentifier:      tableName,
+				DestinationTableIdentifier: q.config.DestinationTableIdentifier,
+			},
+		},
+		FlowName: q.config.FlowJobName,
+		System:   q.config.System,
+		Env:               q.config.Env,
 		SkipChecksForQRep: true,
 	}
 

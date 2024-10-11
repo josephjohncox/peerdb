@@ -179,7 +179,7 @@ func (a *FlowableActivity) SetupTableSchema(
 		return "getting table schema"
 	})
 
-	tableNameSchemaMapping, err := srcConn.GetTableSchema(ctx, config.Env, config.System, config.TableIdentifiers)
+	tableNameSchemaMapping, err := srcConn.GetTableSchema(ctx, config.Env, config.System, config.TableIdentifiers, config.SkipChecksForQRep)
 	if err != nil {
 		return fmt.Errorf("failed to get GetTableSchemaConnector: %w", err)
 	}

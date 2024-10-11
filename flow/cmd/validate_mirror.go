@@ -148,7 +148,7 @@ func (h *FlowRequestHandler) ValidateCDCMirror(
 		}
 		defer chPeer.Close()
 
-		res, err := pgPeer.GetTableSchema(ctx, nil, protos.TypeSystem_PG, srcTableNames)
+		res, err := pgPeer.GetTableSchema(ctx, nil, protos.TypeSystem_PG, srcTableNames, false)
 		if err != nil {
 			displayErr := fmt.Errorf("failed to get source table schema: %v", err)
 			h.alerter.LogNonFlowWarning(ctx, telemetry.CreateMirror, req.ConnectionConfigs.FlowJobName,

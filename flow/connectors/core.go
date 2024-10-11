@@ -50,6 +50,7 @@ type GetTableSchemaConnector interface {
 		env map[string]string,
 		system protos.TypeSystem,
 		tableIdentifiers []string,
+		SkipChecksForQRep bool,
 	) (map[string]*protos.TableSchema, error)
 }
 
